@@ -2,91 +2,93 @@ var camera, scene, renderer;
 var player;
 var meshes = [];
 var enemies = [];
+var ships = [];
 var debris = [];
 var bullets = [];
 var bulletFocus = 2;
 var keyboard = new THREEx.KeyboardState();
 var debrisLifetime = 1000;
-var debrisCount = 60;
+var debrisCount = 10;
+var speedMultiplier = 2;
+var stageY = 1500;
+var stageX = 1000;
+var enemyCount = 0;
+var maxEnemyCount = 50;
 
 init();
 animate();
 
 function init() {
-  camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 10000);
-  camera.position.z = 2000;
+  camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 1, 10000);
+  camera.position.z = 4000;
 
   scene = new THREE.Scene();
 
-  player = makeShip(0, 0);
-  enemies.push(makeShip(100, 500, true));
-  enemies.push(makeShip(-200, 500, true));
-  scene.add(player);
+  player = makeShip(0, -800);
+  scene.add(player.object);
 
   renderer = new THREE.WebGLRenderer({
     antialias: true
   });
+
   renderer.setSize(window.outerWidth, window.innerHeight);
 
   document.body.appendChild(renderer.domElement);
-
-  for(var i = 0; i < enemies.length; i++) {
-    scene.add(enemies[i]);
-  }
 }
 
 function makeShip(x, y, enemy) {
   var group = new THREE.Object3D();
+  shipMult = enemy ? 0.5 : 1;
 
-  makeObject(75, 75, 75, 0, 0, group);
-  makeObject(40, 40, 40, 0, 0, group);
-  makeObject(20, 20, 20, 0, 0, group);
+  var tris = [
+    makeTri(75 * shipMult, 0, 0),
+    makeTri(40 * shipMult, 0, 0),
+    makeTri(20 * shipMult, 0, 0),
+  ];
 
-  var upsideDown = makeTri(75, 0, 0, 75);
-  upsideDown.object.position.y = -150;
-  upsideDown.object.rotation.y = 0;
-  group.add(upsideDown.object);
-  meshes.push(upsideDown);
-
-  var t1 = makeThruster(-150, 180);
-  group.add(t1.object);
-  meshes.push(t1);
-
-  var t2 = makeThruster(150, 180);
-  group.add(t2.object);
-  meshes.push(t2);
-
-  if(enemy) {
-    group.rotation.x = degreesToRadians(180);
+  if (!enemy) {
+    tris.push(makeThruster(-100, 45))
+    tris.push(makeThruster(100, 45))
+  }
+  
+  for (var i = 0; i < tris.length; i++) {
+    meshes.push(tris[i]);
+    group.add(tris[i].object);
   }
 
   group.position.x = x;
   group.position.y = y;
 
-  return group
+  var ship = new gameObject(group)
+  ship.enemy = enemy;
+
+  ships.push(ship);
+
+  return ship
 }
 
 function makeThruster(x, rotation) {
-  var thruster = makeTri(50, 0, 0, 0);
-  thruster.object.position.y = -300;
+  var thruster = makeTri(40, 0, 0, 0);
+  thruster.object.position.y = -130;
   thruster.object.position.x = x;
   thruster.object.rotation.x = degreesToRadians(rotation);
   return thruster;
 }
 
-function rotatingThing(object, x, y, ySpeed, lifetime) {
+function gameObject(object, x, y, ySpeed, lifetime) {
   this.object = object;
   this.x = x;
   this.y = y;
   this.ySpeed = ySpeed;
   this.xSpeed = 0;
+  this.enemy = false;
   this.lifetime = lifetime;
 }
 
-function fire(originObject, enemy) {
+function fire(originObject, enemy, speed) {
   var bulletCount = enemy ? 1 : 3;
   var x = originObject.position.x;
-  var y = originObject.position.y;
+  var y = originObject.position.y + 70;
 
   scene.add(makeBullet(x, y, 0, enemy).object);
   for(var i = (3 - bulletFocus) * bulletCount; i > 0; i--) {
@@ -99,14 +101,27 @@ function randomColor() {
   return Math.round(Math.random() * 16777215.0);
 }
 
-function makeTri(size, x, y, pointSize) {
+function makeTri(size, x, y, pointSize, color, length, wireframe) {
   if(typeof pointSize == 'undefined') {
     pointSize = 0;
   }
-  var geometry = new THREE.CylinderGeometry(pointSize, size, size * 2, 3, false);
+
+  if(typeof color == 'undefined') {
+    color = randomColor();
+  }
+
+  if(typeof length == 'undefined') {
+     length = size * 2;
+  }
+
+  if(typeof wireframe == 'undefined') {
+     wireframe = true;
+  }
+
+  var geometry = new THREE.CylinderGeometry(pointSize, size, length, 3, false);
   var material = new THREE.MeshBasicMaterial({
-    color: randomColor(),
-    wireframe: true,
+    color: color,
+    wireframe: wireframe,
     transparent: true,
     opacity: 0.8
   })
@@ -114,77 +129,197 @@ function makeTri(size, x, y, pointSize) {
   var mesh = new THREE.Mesh(geometry, material);
   mesh.position.x = x;
   mesh.position.y = y;
-  var tri = new rotatingThing(mesh, 0, 0.02)
+  var tri = new gameObject(mesh, 0, 0.02)
 
   return tri;
 }
 
 function degreesToRadians(degrees) {
-    return degrees * (Math.PI/180);;
+  return degrees * (Math.PI/180);;
 }
 
+var bulletIter = 0;
+
 function makeBullet(origx, origy, angle, enemy) {
-  var speed = enemy ? -10 : 20;
-  var tri = makeTri(10, origx, origy);
+  var speed = 20 * speedMultiplier;
+  var color = 0x5555ff;
+  if (enemy) {
+    speed = -10 * speedMultiplier;
+    angle *= 2;
+    color = 0xff5555;
+  }
+
+  var tri = makeTri(20, origx, origy, 0, color, 80);
   tri.ySpeed = speed;
   tri.xSpeed = angle;
+  tri.enemy = enemy;
+
   if(enemy) {
     tri.object.rotation.x = degreesToRadians(180);
   }
-  bullets.push(tri);
+  if (bullets[bulletIter]) {
+    scene.remove(bullets[bulletIter].object);
+  }
+
+  bullets[bulletIter] = tri;
+
+  if (bulletIter > 1000) {
+    bulletIter = 0;
+  } else {
+    bulletIter += 1;
+  }
 
   return tri;
 }
 
-function makeObject(x, y, z, px, py, group) {
-  var tri = makeTri(x, px, py);
-  meshes.push(tri);
-  group.add(tri.object);
+function generateEnemy() {
+  if (enemyCount >= maxEnemyCount) {
+    return;
+  }
 
-  var cube = makeCube(x - 15, y - 15, z - 15, 0.02, 0.02);
-  cube.object.position.x = px;
-  cube.object.position.y = py - 150;
-  meshes.push(cube);
+  var x = ((Math.random() * stageX))
+  var xSpeed = (Math.random() > 0.5 ? 1.0 : -1.0) * 15;
+  var ySpeed = -3 * (Math.random() * 10);
 
-  group.add(cube.object);
-  return tri;
+  for (i = 0; i < 6; i++) {
+    setTimeout(function() {
+      enemyCount++;
+      var e = makeShip(x, stageY - 1, true);
+      e.object.rotation.x = degreesToRadians(180);
+      e.xSpeed = xSpeed;
+      e.ySpeed = ySpeed;
+
+      enemies.push(e);
+      scene.add(e.object);
+    }, 75 * i);
+  }
 }
 
-function makeCube(x, y, z, rotateX, rotateY) {
-  var geometry = new THREE.CubeGeometry(x, y, z);
-  var material = new THREE.MeshBasicMaterial({
-    color: randomColor(),
-    wireframe: true
-  })
-
-  var mesh = new THREE.Mesh(geometry, material);
-  return new rotatingThing(mesh, rotateX, rotateY);
+function fireEnemy() {
+  for (var i = 0; i < enemies.length; i++) {
+    if (enemies[i]) {
+      if(Math.random() - 0.97 > 0) {
+        for(var bi = 0; bi < (Math.random() * 5); bi++) {
+          setTimeout(function() {
+            if (enemies[i]) {
+              fire(enemies[i].object, true, -5);
+            }
+          }, bi * 400)
+        }
+      }
+    }
+  }
 }
 
-function explode(enemyIndex) {
-  scene.remove(enemies[enemyIndex])
+function moveSliderEnemies() {
+  for(var i = 0; i < enemies.length; i++) {
+    if (enemies[i]) {
+      if (
+        Math.round(enemies[i].object.position.x) > stageX ||
+        Math.round(enemies[i].object.position.x) < -stageX
+      ) {
+        enemies[i].xSpeed = -enemies[i].xSpeed;
+      }
+
+      if (
+        Math.abs(Math.round(enemies[i].object.position.y)) > stageY
+      ) {
+        enemies[i].ySpeed = -enemies[i].ySpeed;
+      }
+
+      enemies[i].object.position.x += enemies[i].xSpeed;
+      enemies[i].object.position.y += enemies[i].ySpeed;
+    }
+  }
+}
+
+function explode(shipIndex) {
+  scene.remove(ships[shipIndex].object)
   for(var i = debrisCount; i != 0; i--) {
-    var tri = makeTri(10,
-                      enemies[enemyIndex].position.x,
-                      enemies[enemyIndex].position.y,
-                      Math.random() * Math.PI);
+    var tri = makeTri(25,
+                      ships[shipIndex].object.position.x,
+                      ships[shipIndex].object.position.y,
+                      0xffffff);
+    tri.object.material.opacity = 0.4;
     scene.add(tri.object);
 
-    var xSpeed = (Math.random() - 0.5) * (Math.random() * 24);
-    var ySpeed = (Math.random() - 0.5) * (Math.random() * 24);
+    var xSpeed = (Math.random() - 0.5) * (Math.random() * 76);
+    var ySpeed = (Math.random() - 0.5) * (Math.random() * 76);
     tri.xSpeed = xSpeed;
     tri.ySpeed = ySpeed;
+    tri.x = Math.random() / 10.0;
+    tri.y = Math.random() / 10.0;
     tri.lifetime = debrisLifetime;
     tri.object.rotation.x = degreesToRadians(Math.atan2(xSpeed, ySpeed));
-    debris[i + ((enemyIndex + 1) * debrisCount)] = tri;
+    debris[i + ((shipIndex + 1) * debrisCount)] = tri;
+    meshes.push(tri);
   }
-  enemies[enemyIndex] = false;
+  if (!ships[shipIndex].enemy) {
+    setTimeout(function() {
+      player = makeShip(0, -800);
+      scene.add(player.object);
+    }, 1000)
+  } else {
+    enemyCount--;
+  }
+
+  ships[shipIndex] = false;
+  enemies[shipIndex - 1] = false;
+}
+
+function moveSpinners() {
+  for(var i = 0; i < meshes.length; i++) {
+    meshes[i].object.rotation.x += meshes[i].x;
+    meshes[i].object.rotation.y += meshes[i].y;
+  }
+}
+
+function moveDebris() {
+  for (var i = 0; i < debris.length; i++) {
+    if(debris[i]) {
+      if(debris[i].lifetime > 0) {
+        debris[i].object.position.x += debris[i].xSpeed;
+        debris[i].object.position.y += debris[i].ySpeed;
+        debris[i].lifetime -= 10;
+        debris[i].object.material.opacity -= 10.0 / debrisLifetime;
+      } else {
+        scene.remove(debris[i].object);
+      }
+    }
+  }
+}
+
+function animateBullets() {
+  for(var i = 0; i < bullets.length; i++) {
+    if (!bullets[i]) { continue }
+    if (Math.abs(bullets[i].object.position.y) > stageY) {
+      scene.remove(bullets[i].object);
+      bullets[i] = null;
+    } else {
+      bullets[i].object.position.y += bullets[i].ySpeed;
+      bullets[i].object.position.x += bullets[i].xSpeed; 
+
+      for(var si = 0; si < ships.length; si++) {
+        if(ships[si]) {
+          // FIXME use raycasting
+          if(
+              ships[si].enemy != bullets[i].enemy &&
+              Math.abs(ships[si].object.position.y - bullets[i].object.position.y) < 40 &&
+              Math.abs(ships[si].object.position.x - bullets[i].object.position.x) < 40
+            ) {
+            scene.remove(bullets[i]);
+            explode(si);
+          }
+        }
+      }
+    }
+  }
 }
 
 var firing = false;
 setInterval(function() {
   if (firing) {
-    fire(player);
+    fire(player.object, false, 20);
   }
 }, 100);
 
@@ -202,58 +337,36 @@ function animate() {
     bulletFocus = 2;
   }
 
-  moveBy = 7.5 * bulletFocus;
+  moveBy = 7.5 * bulletFocus * speedMultiplier;
 
   if(keyboard.pressed("left")) {
-    player.position.x -= moveBy;
+    player.object.position.x -= moveBy;
   }
 
   if(keyboard.pressed("right")) {
-    player.position.x += moveBy;
+    player.object.position.x += moveBy;
   }
 
   if(keyboard.pressed("up")) {
-    player.position.y += moveBy;
+    player.object.position.y += moveBy;
+    //camera.position.z += 30;
   }
 
   if(keyboard.pressed("down")) {
-    player.position.y -= moveBy;
+    player.object.position.y -= moveBy;
+    //camera.position.z -= 30;
   }
 
-  for(var i = 0; i < meshes.length; i++) {
-    meshes[i].object.rotation.x += meshes[i].x;
-    meshes[i].object.rotation.y += meshes[i].y;
+  moveSliderEnemies();
+  moveSpinners();
+  moveDebris();
+  animateBullets();
+
+  if(Math.random() - 0.98 > 0) {
+    generateEnemy();
   }
 
-  for (var i = 0; i < debris.length; i++) {
-    if(debris[i]) {
-      if(debris[i].lifetime > 0) {
-        debris[i].object.position.x += debris[i].xSpeed;
-        debris[i].object.position.y += debris[i].ySpeed;
-        debris[i].lifetime -= 10;
-        debris[i].object.material.opacity -= 10.0 / debrisLifetime;
-      } else {
-        scene.remove(debris[i].object);
-      }
-    }
-  }
-
-  for(var i = 0; i < bullets.length; i++) {
-    bullets[i].object.position.y += bullets[i].ySpeed;
-    bullets[i].object.position.x += bullets[i].xSpeed; 
-
-    for(var ei = 0; ei < enemies.length; ei++) {
-      if(enemies[ei]) {
-        // FIXME use raycasting
-        if(
-            Math.abs(enemies[ei].position.y - bullets[i].object.position.y) < 30 &&
-            Math.abs(enemies[ei].position.x - bullets[i].object.position.x) < 30
-          ) {
-          explode(ei);
-        }
-      }
-    }
-  }
+  fireEnemy();
 
   renderer.render(scene, camera);
 }
