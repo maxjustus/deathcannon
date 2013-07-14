@@ -10,10 +10,13 @@ var keyboard = new THREEx.KeyboardState();
 var debrisLifetime = 1000;
 var debrisCount = 10;
 var speedMultiplier = 2;
-var stageY = 1500;
+var stageY = 1300;
 var stageX = 1000;
 var enemyCount = 0;
 var maxEnemyCount = 50;
+var score = 0;
+var dead = false;
+var unfocusedCamPosition = 4000;
 
 init();
 animate();
@@ -31,7 +34,7 @@ function init() {
     antialias: true
   });
 
-  renderer.setSize(window.outerWidth, window.innerHeight);
+  renderer.setSize(window.outerWidth - 100, window.innerHeight - 100);
 
   document.body.appendChild(renderer.domElement);
 }
@@ -43,7 +46,7 @@ function makeShip(x, y, enemy) {
   var tris = [
     makeTri(75 * shipMult, 0, 0),
     makeTri(40 * shipMult, 0, 0),
-    makeTri(20 * shipMult, 0, 0),
+    makeTri(20 * shipMult, 0, 0, 0, randomColor(), 40, false),
   ];
 
   if (!enemy) {
@@ -62,7 +65,11 @@ function makeShip(x, y, enemy) {
   var ship = new gameObject(group)
   ship.enemy = enemy;
 
-  ships.push(ship);
+  if (enemy) {
+    ships.push(ship);
+  } else {
+    ships[0] = ship;
+  }
 
   return ship
 }
@@ -86,10 +93,11 @@ function gameObject(object, x, y, ySpeed, lifetime) {
 }
 
 function fire(originObject, enemy, speed) {
-  var bulletCount = enemy ? 1 : 3;
+  if (!enemy && dead) { return }
   var x = originObject.position.x;
   var y = originObject.position.y + 70;
 
+  var bulletCount = enemy ? 1 : 3;
   scene.add(makeBullet(x, y, 0, enemy).object);
   for(var i = (3 - bulletFocus) * bulletCount; i > 0; i--) {
     scene.add(makeBullet(x, y, i * bulletFocus, enemy).object);
@@ -98,7 +106,7 @@ function fire(originObject, enemy, speed) {
 }
 
 function randomColor() {
-  return Math.round(Math.random() * 16777215.0);
+  return Math.round(Math.random() * 16777215.0) + 100000;
 }
 
 function makeTri(size, x, y, pointSize, color, length, wireframe) {
@@ -142,25 +150,28 @@ var bulletIter = 0;
 
 function makeBullet(origx, origy, angle, enemy) {
   var speed = 20 * speedMultiplier;
-  var color = 0x5555ff;
+  var color = 0x9999ff;
   if (enemy) {
-    speed = -10 * speedMultiplier;
-    angle *= 2;
-    color = 0xff5555;
+    speed = -6 * speedMultiplier;
+    angle *= 3;
+    color = 0xff9999;
   }
 
-  var tri = makeTri(20, origx, origy, 0, color, 80);
+  var tri = makeTri(10, origx, origy, 0, color, 80);
   tri.ySpeed = speed;
   tri.xSpeed = angle;
   tri.enemy = enemy;
+  console.log(Math.atan2(speed, angle));
+  tri.object.rotation.z = -Math.atan2(angle, speed);
 
   if(enemy) {
-    tri.object.rotation.x = degreesToRadians(180);
+    tri.object.rotation.z = -tri.object.rotation.z;
+    tri.object.rotation.y += degreesToRadians(180);
   }
+
   if (bullets[bulletIter]) {
     scene.remove(bullets[bulletIter].object);
   }
-
   bullets[bulletIter] = tri;
 
   if (bulletIter > 1000) {
@@ -170,6 +181,10 @@ function makeBullet(origx, origy, angle, enemy) {
   }
 
   return tri;
+}
+
+function updateScore() {
+  document.getElementsByTagName('h1')[0].innerHTML = score;
 }
 
 function generateEnemy() {
@@ -198,32 +213,30 @@ function generateEnemy() {
 function fireEnemy() {
   for (var i = 0; i < enemies.length; i++) {
     if (enemies[i]) {
-      if(Math.random() - 0.97 > 0) {
-        for(var bi = 0; bi < (Math.random() * 5); bi++) {
-          setTimeout(function() {
-            if (enemies[i]) {
-              fire(enemies[i].object, true, -5);
-            }
-          }, bi * 400)
-        }
+      if(Math.random() - 0.996 > 0) {
+        fire(enemies[i].object, true, -3);
       }
     }
   }
 }
 
+function atBoundary(position, axis) {
+  var stage = stageY;
+  if (axis == 'x') {
+    stage = stageX;
+  }
+
+  return Math.abs(position) > stage;
+}
+
 function moveSliderEnemies() {
   for(var i = 0; i < enemies.length; i++) {
     if (enemies[i]) {
-      if (
-        Math.round(enemies[i].object.position.x) > stageX ||
-        Math.round(enemies[i].object.position.x) < -stageX
-      ) {
+      if (atBoundary(Math.round(enemies[i].object.position.x), 'x')) {
         enemies[i].xSpeed = -enemies[i].xSpeed;
       }
 
-      if (
-        Math.abs(Math.round(enemies[i].object.position.y)) > stageY
-      ) {
+      if (atBoundary(Math.round(enemies[i].object.position.y), 'y')) {
         enemies[i].ySpeed = -enemies[i].ySpeed;
       }
 
@@ -240,7 +253,7 @@ function explode(shipIndex) {
                       ships[shipIndex].object.position.x,
                       ships[shipIndex].object.position.y,
                       0xffffff);
-    tri.object.material.opacity = 0.4;
+    tri.object.material.opacity = 0.6;
     scene.add(tri.object);
 
     var xSpeed = (Math.random() - 0.5) * (Math.random() * 76);
@@ -254,17 +267,25 @@ function explode(shipIndex) {
     debris[i + ((shipIndex + 1) * debrisCount)] = tri;
     meshes.push(tri);
   }
+
   if (!ships[shipIndex].enemy) {
+    dead = true;
+    score = 0;
+    updateScore();
+
     setTimeout(function() {
+      dead = false;
       player = makeShip(0, -800);
       scene.add(player.object);
     }, 1000)
   } else {
+    score += 100;
+    updateScore();
     enemyCount--;
+    enemies[shipIndex - 1] = false;
   }
 
   ships[shipIndex] = false;
-  enemies[shipIndex - 1] = false;
 }
 
 function moveSpinners() {
@@ -338,6 +359,14 @@ function animate() {
   }
 
   moveBy = 7.5 * bulletFocus * speedMultiplier;
+
+  if (bulletFocus == 1) {
+    //camera.position.z -= 30;
+    camera.fov -= 0.2
+  } else {
+    camera.fov = 35
+  }
+  camera.updateProjectionMatrix();
 
   if(keyboard.pressed("left")) {
     player.object.position.x -= moveBy;
